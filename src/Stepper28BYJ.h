@@ -31,6 +31,8 @@ extern "C"{
 #define STEPS28BYJ 2048
 #define STEPPER_SEQ_LEN 4
 
+#define MAX_RPM 3.82
+
 
 enum StepperState {StepperCmd, StepperCalibrateOne, StepperCalibrateTwo, StepperStartHunt, StepperGotoStart, StepperStop};
 
@@ -188,6 +190,14 @@ protected:
 	 */
 	virtual configSTACK_DEPTH_TYPE getMaxStackSize();
 
+	/***
+	 * Handle subscription msg
+	 * @param msg
+	 * @param localContext
+	 */
+	virtual void handleSubscriptionMsg(const void* msg, uRosSubContext_t* context);
+
+
 private:
 	/***
 	 * Initialise the GPIO
@@ -227,6 +237,15 @@ private:
 	 * Pub Position to ROS
 	 */
 	void pubRosPos();
+
+	/***
+	 * Minimum radians between two values.
+	 * In CW or CCW direction
+	 * @param a1 - radians -PI to +PI
+	 * @param a2 - radians -PI to +PI
+	 * @return Negative if CCW
+	 */
+	double angleDiff(double a1, double a2);
 
 	//GPIO Pads for stepper motor coils
 	uint8_t pGPPAD[4];

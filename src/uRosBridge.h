@@ -38,7 +38,8 @@ extern"C"{
 }
 
 
-#define PUB_Q_LEN 	10
+#define PUB_Q_LEN 			10
+#define UROS_MAX_PUB_MSGS	5
 
 class uRosBridge : public Agent {
 public:

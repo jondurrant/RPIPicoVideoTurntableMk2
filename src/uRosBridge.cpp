@@ -65,6 +65,7 @@ uRosBridge::~uRosBridge() {
  */
 void uRosBridge::run(){
 	PubCmd_t cmd;
+	uint readCount;
 
 	uRosInit();
 	xAllocator = rcl_get_default_allocator();
@@ -84,11 +85,12 @@ void uRosBridge::run(){
 			case AGENT_CONNECTED:
 			  state = pingAgent() ? AGENT_CONNECTED : AGENT_DISCONNECTED;
 			  if (state == AGENT_CONNECTED) {
-				rclc_executor_spin_some(&xExecutor, RCL_MS_TO_NS(100));
+				rclc_executor_spin_some(&xExecutor, RCL_MS_TO_NS(10));
 
 				//Handle Pub queue
 				if (xPubQ  != NULL){
 					BaseType_t res = pdTRUE;
+					readCount = 0;
 					while (res == pdTRUE){
 						res = xQueueReceive(
 						   xPubQ,
@@ -116,6 +118,11 @@ void uRosBridge::run(){
 									cmd.args,
 									PubOK
 									);
+							}
+
+							readCount++;
+							if (readCount > UROS_MAX_PUB_MSGS){
+								break;
 							}
 						}
 

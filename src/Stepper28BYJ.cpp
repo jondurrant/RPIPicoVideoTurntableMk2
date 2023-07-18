@@ -266,6 +266,7 @@ uint32_t Stepper28BYJ::processQueue(){
 			setDelay(req.rpm);
 			break;
 		case StepperCont:
+			printf("Step cont\n");
 			xTargetPos = -1;
 			xClockwise = req.cw;
 			setDelay(req.rpm);
@@ -423,6 +424,10 @@ uint32_t Stepper28BYJ::stepContinuous(float rpm, bool cw){
 	req.cw = cw;
 	req.id = xNextId++;
 
+	if (rpm > MAX_RPM){
+		rpm = MAX_RPM;
+	}
+
 	if (xCmdQ != NULL){
 		BaseType_t res = xQueueSendToBack(xCmdQ, (void *)&req, 0);
 		if (res != pdTRUE){
@@ -516,6 +521,10 @@ void Stepper28BYJ::setupRosMsgs(){
 	}
 	xJointStateMsg.name.size=1;
 	xJointStateMsg.name.capacity=1;
+
+	//Setup sub msgs
+	geometry_msgs__msg__Twist__init(&xTwistMsg);
+	geometry_msgs__msg__PoseStamped__init(&xPoseMsg);
 }
 
 /***
@@ -616,4 +625,124 @@ void Stepper28BYJ::addToExecutor(rclc_executor_t *executor){
 		uRosEntities::subscriptionCallback,
 		&xSubPoseContext,
 		ON_NEW_DATA);
+}
+
+/***
+ * Handle subscription msg
+ * @param msg
+ * @param localContext
+ */
+void Stepper28BYJ::handleSubscriptionMsg(const void* msg, uRosSubContext_t* context){
+
+	if (context == &xSubTwistContext){
+		geometry_msgs__msg__Twist * pTwistMsg = (geometry_msgs__msg__Twist *) msg;
+
+		double radpersec = pTwistMsg->angular.z;
+
+		double rpm = radpersec / (M_PI * 2) * 60.0;
+
+		printf("Twist %f becomes %f rpm\n", radpersec, rpm);
+
+		stepStop();
+		if (radpersec != 0.0){
+			if (radpersec > 0){
+				stepContinuous(rpm, true);
+			} else {
+				stepContinuous(rpm * (-1.0), false);
+			}
+		}
+	}
+
+	if (context == &xSubPoseContext){
+		int targetPos;
+		geometry_msgs__msg__PoseStamped *pPoseMsg;
+		pPoseMsg = (geometry_msgs__msg__PoseStamped *) msg;
+
+		//Calculate target angle
+		geometry_msgs__msg__Quaternion *q = &pPoseMsg->pose.orientation;
+		double siny_cosp = 2 * (q->w * q->z + q->x * q->y);
+		double cosy_cosp = 1 - 2 * (q->y * q->y + q->z * q->z);
+		double a = std::atan2(siny_cosp, cosy_cosp);
+
+		//Calculate target pos
+		double half = xTotalSteps /2.0;
+		targetPos = 0;
+		double ratio = a/M_PI;
+		if (ratio < 0.0){
+			ratio = ratio * (-1);
+		}
+		if (a > 0.0) {
+			targetPos = ratio * half;
+		} else if (a < 0.0) {
+			targetPos = xTotalSteps - (ratio * half);
+		}
+		if (targetPos > xTotalSteps){
+			targetPos = xTotalSteps;
+		}
+
+		//Calc direction
+		uint steps = 0;
+		uint current = getPos();
+		bool cw = true;
+		if (targetPos > current){
+			steps = targetPos - current;
+		} else {
+			steps = (targetPos + xTotalSteps) - current;
+		}
+		if (steps > half){
+			steps = half - (steps - half);
+			cw = false;
+		}
+
+		//Calc difference between timestamp and now
+		int64_t now = rmw_uros_epoch_nanos();
+		uint32_t sec = now / 1000000000;
+		uint32_t nanosec = now % 1000000000;
+		double dif = pPoseMsg->header.stamp.sec - sec;
+		double ndif = pPoseMsg->header.stamp.nanosec % 1000000000;
+		ndif = (ndif - nanosec) / 1000.0 / 1000.0 /1000.0;
+		//If timestamp in past the 0 time
+		if (dif < 0.0){
+			dif = 0.0;
+		}
+		if ((dif == 0.0) && (ndif < 0.0)){
+			dif = 0.0;
+		} else {
+			dif = dif + ndif;
+		}
+
+		//Calculate speed
+		double rpm, stepspersec;
+		if (dif > 0.0){
+			stepspersec = (double)steps / dif;
+			rpm = (stepspersec / xTotalSteps) * 60.0;
+		} else {
+			rpm = MAX_RPM;
+		}
+
+		//printf("Time %f steps per sec %f Target speed %f\n", dif, stepspersec, rpm);
+
+
+		stepTo(targetPos, rpm, cw);
+
+	}
+}
+
+
+/***
+ * Minimum radians between two values.
+ * In CW or CCW direction
+ * @param a1 - radians -PI to +PI
+ * @param a2 - radians -PI to +PI
+ * @return Negative if CCW
+ */
+double Stepper28BYJ::angleDiff(double a1, double a2){
+	double cenA1 = a1 + M_PI;
+	double cenA2 = a2 + M_PI;
+
+	double cw = cenA1 - cenA2;
+	if (cw < 0.0){
+		cw = cw * -1.0;
+	}
+	return cw;
 }

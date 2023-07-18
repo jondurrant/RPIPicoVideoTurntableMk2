@@ -176,7 +176,7 @@ void mainTask(void *params){
 
 	bridge->setuRosEntities(&stepper);
 	bridge->setLed(LED_PAD);
-	bridge->start("Bridge",  TASK_PRIORITY+1);
+	bridge->start("Bridge",  TASK_PRIORITY+2);
 
 	for (;;){
 		vTaskDelay(3000);
